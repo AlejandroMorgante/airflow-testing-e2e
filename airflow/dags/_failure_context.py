@@ -41,7 +41,9 @@ def _read_task_log(dag_id: str, run_id: str, task_id: str, try_number: int) -> s
     return log_text
 
 
-def collect_failure_context_payload(dag_file: str, failed_task_id: str, **context: Any) -> str:
+def collect_failure_context_payload(
+    dag_file: str, failed_task_id: str, **context: Any
+) -> str:
     dag_run = context["dag_run"]
     dag_id = context["dag"].dag_id
     run_id = dag_run.run_id
