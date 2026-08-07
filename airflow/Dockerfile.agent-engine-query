@@ -1,0 +1,5 @@
+FROM apache/airflow:3.3.0-python3.12
+
+RUN pip install --no-cache-dir --no-deps \
+    "google-cloud-aiplatform==1.155.0" \
+    "google-genai==2.8.0"
