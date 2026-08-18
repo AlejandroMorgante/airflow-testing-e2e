@@ -1,0 +1,42 @@
+name: airflow-agent-engine-query-e2e
+
+x-agent-engine-query-overrides: &agent-engine-query-overrides
+  image: airflow-agent-engine-query-e2e:latest
+  build:
+    context: .
+    dockerfile: Dockerfile.agent-engine-query
+  env_file: !override
+    - ${AIRFLOW_ENV_FILE:?Set AIRFLOW_ENV_FILE to the test environment file}
+  environment:
+    GOOGLE_CLOUD_PROJECT: ${GCP_PROJECT_ID:?Set GCP_PROJECT_ID}
+    AIRFLOW_VAR_GCP_PROJECT_ID: ${GCP_PROJECT_ID:?Set GCP_PROJECT_ID}
+    AIRFLOW_VAR_GCP_REGION: ${GCP_REGION:-us-central1}
+    AIRFLOW_VAR_GCP_AGENT_ENGINE_CONTAINER_URI: ${SYSTEM_TESTS_VERTEX_AI_AGENT_ENGINE_CONTAINER_URI:?Set SYSTEM_TESTS_VERTEX_AI_AGENT_ENGINE_CONTAINER_URI}
+    AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: "google-cloud-platform://?extra__google_cloud_platform__project=${GCP_PROJECT_ID}&extra__google_cloud_platform__scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform"
+  volumes: !override
+    - ./dags/gcp_gemini_agent_platform/example_agent_engine_sync_query.py:/opt/airflow/dags/example_agent_engine_sync_query.py:ro
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - ./config:/opt/airflow/config
+    - ${AIRFLOW_GOOGLE_PROVIDER_SRC:?Set AIRFLOW_GOOGLE_PROVIDER_SRC to providers/google/src in the Airflow checkout}/airflow/providers/google/cloud/hooks/vertex_ai/agent_engine.py:/home/airflow/.local/lib/python3.12/site-packages/airflow/providers/google/cloud/hooks/vertex_ai/agent_engine.py:ro
+    - ${AIRFLOW_GOOGLE_PROVIDER_SRC:?Set AIRFLOW_GOOGLE_PROVIDER_SRC to providers/google/src in the Airflow checkout}/airflow/providers/google/cloud/operators/vertex_ai/agent_engine.py:/home/airflow/.local/lib/python3.12/site-packages/airflow/providers/google/cloud/operators/vertex_ai/agent_engine.py:ro
+    - ${AIRFLOW_GOOGLE_PROVIDER_SRC:?Set AIRFLOW_GOOGLE_PROVIDER_SRC to providers/google/src in the Airflow checkout}/airflow/providers/google/cloud/triggers/vertex_ai.py:/home/airflow/.local/lib/python3.12/site-packages/airflow/providers/google/cloud/triggers/vertex_ai.py:ro
+    - ${HOME}/.config/gcloud:/home/airflow/.config/gcloud:ro
+
+services:
+  airflow-init:
+    <<: *agent-engine-query-overrides
+
+  airflow-apiserver:
+    <<: *agent-engine-query-overrides
+    ports: !override
+      - "${AIRFLOW_PORT:-8081}:8080"
+
+  airflow-scheduler:
+    <<: *agent-engine-query-overrides
+
+  airflow-triggerer:
+    <<: *agent-engine-query-overrides
+
+  airflow-dag-processor:
+    <<: *agent-engine-query-overrides
