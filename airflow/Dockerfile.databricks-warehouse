@@ -1,0 +1,7 @@
+FROM apache/airflow:3.3.0-python3.12
+
+RUN pip install --no-cache-dir \
+    "apache-airflow==3.3.0" \
+    "apache-airflow-providers-databricks==7.21.0" \
+    "apache-airflow-providers-common-ai==0.10.0" \
+    "tenacity>=8.3.0"
