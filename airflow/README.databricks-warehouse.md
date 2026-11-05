@@ -2,7 +2,7 @@
 
 Validate Apache Airflow PR https://github.com/apache/airflow/pull/76504 against a real SQL warehouse using Airflow 3.3.0, Python 3.12, Postgres 16 and LocalExecutor. Mount the provider source from the PR checkout; the installed wheel alone does not contain this operator.
 
-The manually triggered `databricks_warehouse_edit_e2e` Dag reads the current `auto_stop_mins`, changes it to 20 when the original is 10 (otherwise to 10), verifies the new value through the API, restores the original value, and verifies restoration. Cleanup runs even if verification fails. If snapshot or restoration fails, inspect the task logs and restore the saved original value manually. No start or stop operation is requested.
+The manually triggered `databricks_warehouse_edit_e2e` Dag contains one `DatabricksEditWarehouseOperator`. Supply `warehouse_id` and `auto_stop_mins` (default 20) in the trigger form. Record the original setting in the Databricks UI before running. After inspecting the change, trigger the same Dag with the original value to restore it. No start or stop operation is requested.
 
 ## Setup
 
@@ -24,9 +24,9 @@ Use a fresh short-lived access token; renew it before rerunning after expiration
 docker compose --env-file /path/to/runtime.env -f airflow/docker-compose.databricks-warehouse.yml up -d --no-build
 ```
 
-Open http://localhost:8084 and log in with the local-only `admin` / `admin` account. Unpause the Dag and trigger it with the selected `warehouse_id`. The UI shows the rendered request, verification outputs and logs. A successful run has five successful tasks and restores the original setting.
+Open http://localhost:8084 and log in with the local-only `admin` / `admin` account. Unpause the Dag and trigger it with the selected `warehouse_id` and `auto_stop_mins`. Inspect the rendered request and task logs, then confirm the new value in the Databricks UI. Trigger another run with the original value and confirm restoration there. A green task confirms that the edit request succeeded; remote settings are verified separately.
 
-Capture the Airflow graph, edit and verification logs, and the Databricks warehouse settings UI. The final Databricks settings show the restored value; the task logs record the temporary value verified through the real API. Record the tested provider commit alongside the evidence.
+Capture the Airflow graph and edit logs, and the Databricks warehouse settings UI showing the changed value before restoration. Capture the restored setting afterward. Record the tested provider commit alongside the evidence.
 
 Stop the local stack after review:
 

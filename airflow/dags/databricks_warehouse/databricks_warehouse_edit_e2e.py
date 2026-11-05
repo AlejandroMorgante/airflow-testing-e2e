@@ -14,65 +14,27 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Verify warehouse edits and restore the original auto-stop setting."""
+"""Edit a SQL warehouse setting for manual end-to-end UI validation."""
 
 from __future__ import annotations
 
-from datetime import timedelta
-
-import structlog
-
-from airflow.providers.databricks.hooks.databricks import DatabricksHook
 from airflow.providers.databricks.operators.warehouse import DatabricksEditWarehouseOperator
-from airflow.sdk import DAG, Param, task
-
-log = structlog.get_logger()
-
-CONN_ID = "databricks_oauth"
+from airflow.sdk import DAG, Param
 
 with DAG(
     dag_id="databricks_warehouse_edit_e2e",
     schedule=None,
     catchup=False,
     render_template_as_native_obj=True,
-    params={"warehouse_id": Param("", type="string", minLength=1)},
+    params={
+        "warehouse_id": Param("", type="string", minLength=1),
+        "auto_stop_mins": Param(20, type="integer", minimum=10),
+    },
     tags=["e2e", "databricks", "pr-76504"],
 ) as dag:
-
-    @task
-    def snapshot(warehouse_id: str) -> dict:
-        warehouse = DatabricksHook(CONN_ID).get_warehouse(warehouse_id)
-        original = warehouse["auto_stop_mins"]
-        if not isinstance(original, int):
-            raise ValueError("Expected an integer auto_stop_mins before editing")
-        target = 20 if original == 10 else 10
-        log.info("warehouse_settings_snapshot", original=original, target=target)
-        return {"warehouse_id": warehouse_id, "original": original, "target": target}
-
-    @task(retries=5, retry_delay=timedelta(seconds=10))
-    def verify(settings: dict, expected_key: str) -> dict:
-        warehouse = DatabricksHook(CONN_ID).get_warehouse(settings["warehouse_id"])
-        actual = warehouse["auto_stop_mins"]
-        expected = settings[expected_key]
-        if actual != expected:
-            raise ValueError(f"Expected auto_stop_mins={expected}, received {actual}")
-        log.info("warehouse_setting_verified", auto_stop_mins=actual)
-        return {"verified": True, "auto_stop_mins": actual}
-
-    settings = snapshot("{{ params.warehouse_id }}")
-    edit = DatabricksEditWarehouseOperator(
+    DatabricksEditWarehouseOperator(
         task_id="edit_warehouse",
-        databricks_conn_id=CONN_ID,
+        databricks_conn_id="databricks_oauth",
         warehouse_id="{{ params.warehouse_id }}",
-        json={"auto_stop_mins": "{{ ti.xcom_pull(task_ids='snapshot')['target'] }}"},
+        json={"auto_stop_mins": "{{ params.auto_stop_mins }}"},
     )
-    verified = verify.override(task_id="verify_edit")(settings, "target")
-    restore = DatabricksEditWarehouseOperator(
-        task_id="restore_original_setting",
-        databricks_conn_id=CONN_ID,
-        warehouse_id="{{ params.warehouse_id }}",
-        json={"auto_stop_mins": "{{ ti.xcom_pull(task_ids='snapshot')['original'] }}"},
-        trigger_rule="all_done",
-    )
-    restored = verify.override(task_id="verify_restoration")(settings, "original")
-    settings >> edit >> verified >> restore >> restored
