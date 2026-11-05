@@ -1,0 +1,90 @@
+name: airflow-databricks-warehouse-e2e
+
+x-airflow: &airflow
+  image: airflow-databricks-agent-e2e:latest
+  cpus: 1.0
+  mem_limit: 2g
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__PARALLELISM: 2
+    AIRFLOW__DAG_PROCESSOR__PARSING_PROCESSES: 1
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__API__BASE_URL: http://localhost:${AIRFLOW_PORT:-8084}
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:?Set a random JWT secret of at least 64 bytes}
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: admin:admin
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/config/simple_auth_manager_passwords.json
+    AIRFLOW__SECRETS__BACKEND: airflow.secrets.local_filesystem.LocalFilesystemBackend
+    AIRFLOW__SECRETS__BACKEND_KWARGS: '{"connections_file_path": "/run/secrets/databricks_connections.json"}'
+  volumes:
+    - ./dags/databricks_warehouse:/opt/airflow/dags:ro
+    - databricks-warehouse-logs:/opt/airflow/logs
+    - ./config/simple_auth_manager_passwords.json:/opt/airflow/config/simple_auth_manager_passwords.json
+    - ${AIRFLOW_SOURCE_DIR:?Set the Apache Airflow checkout}/providers/databricks/src/airflow/providers/databricks:/home/airflow/.local/lib/python3.12/site-packages/airflow/providers/databricks:ro
+    - ${AIRFLOW_SOURCE_DIR:?Set the Apache Airflow checkout}/providers/common/ai/src/airflow/providers/common/ai:/home/airflow/.local/lib/python3.12/site-packages/airflow/providers/common/ai:ro
+    - ${AIRFLOW_SOURCE_DIR:?Set the Apache Airflow checkout}/providers/common/compat/src/airflow/providers/common/compat:/home/airflow/.local/lib/python3.12/site-packages/airflow/providers/common/compat:ro
+  secrets:
+    - source: databricks_connections
+      target: databricks_connections.json
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - databricks-warehouse-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 10
+
+  airflow-init:
+    <<: *airflow
+    command: db migrate
+
+  airflow-apiserver:
+    <<: *airflow
+    command: api-server
+    ports:
+      - "127.0.0.1:${AIRFLOW_PORT:-8084}:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-triggerer:
+    <<: *airflow
+    command: triggerer
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-dag-processor:
+    <<: *airflow
+    command: dag-processor
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+secrets:
+  databricks_connections:
+    file: ${DATABRICKS_CONNECTIONS_FILE:?Set the private connections JSON path}
+
+volumes:
+  databricks-warehouse-db:
+  databricks-warehouse-logs:
