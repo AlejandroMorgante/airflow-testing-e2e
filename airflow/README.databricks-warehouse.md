@@ -35,3 +35,19 @@ docker compose --env-file /path/to/runtime.env -f airflow/docker-compose.databri
 ```
 
 Volumes retain the run history for later review. No live-environment success is claimed until the Dag completes.
+
+## Resize followed by a query
+
+Set `DATABRICKS_WAREHOUSE_ID` in the private environment file. The `databricks_warehouse_resize_query_e2e` Dag contains exactly two operators:
+
+```text
+DatabricksEditWarehouseOperator >> DatabricksSQLStatementsOperator
+```
+
+Record the current size and start the test warehouse before triggering this scenario, so the run exercises resizing active compute. Select a different `cluster_size` in the trigger form (default X-Small). The edit task only submits the configuration change. The SQL task immediately submits `SELECT 1 AS resize_pipeline_probe` with `wait_for_termination=True`, polls every second, and has a 180-second statement polling timeout plus a four-minute task execution timeout. It uses synchronous execution so the Airflow task remains running while Databricks reports a pending/running statement. No custom waiter or Python task is used.
+
+Review `select_one` logs and its `statement_id` XCom against Databricks Query History. A resize can finish before the scheduler starts the downstream task, so seeing PENDING is timing-dependent; a successful Dag alone does not prove a pending phase occurred. Record the actual observations. After review, restore the original warehouse size and stop the warehouse to avoid idle charges.
+
+### Observed run (2026-11-05 UTC)
+
+With provider source commit `1285e05c394a375c291e78de7bf005c231bafb41`, `manual__resize_then_select_20261105` successfully resized an active serverless warehouse from Small to X-Small and executed the downstream statement. Both tasks succeeded. Query History reported one output row and 4,978 ms total query time. Its provisioning-queue and compilation-start timestamps were 1,821 ms apart. The synchronous operator remained active until statement completion, although its logs did not capture a PENDING poll in this run. This validates this operator/API path; other SQL clients may have different waiting and timeout behavior.

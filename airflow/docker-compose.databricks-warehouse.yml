@@ -6,6 +6,7 @@ x-airflow: &airflow
   mem_limit: 2g
   user: "${AIRFLOW_UID:-50000}:0"
   environment:
+    DATABRICKS_WAREHOUSE_ID: ${DATABRICKS_WAREHOUSE_ID:?Set the test warehouse ID}
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__PARALLELISM: 2
     AIRFLOW__DAG_PROCESSOR__PARSING_PROCESSES: 1
